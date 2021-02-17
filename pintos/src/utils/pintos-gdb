@@ -1,7 +1,7 @@
 #! /bin/sh
 
 # Path to GDB macros file.  Customize for your site.
-GDBMACROS=/home/sethyenni/cis520/usr/local/bin/gdb-macros
+GDBMACROS=/home/m/mcgowans06/cis520/usr/local/bin/gdb-macros
 #/usr/class/cs140/pintos/pintos/src/misc/gdb-macros
 
 # Choose correct GDB.
