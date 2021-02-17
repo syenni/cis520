@@ -7,6 +7,7 @@
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
+#include "lib/kernel/list.h"
   
 /* See [8254] for hardware details of the 8254 timer chip. */
 
@@ -30,6 +31,10 @@ static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
 
+/* List of sleeping threads. Threads are added to this list when they are 
+    sleeping and removed when they wake up. */
+static struct list sleeping_list;
+
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
 void
@@ -37,6 +42,7 @@ timer_init (void)
 {
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+  list_init (&sleeping_list);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -87,13 +93,27 @@ timer_elapsed (int64_t then)
 /* Sleeps for approximately TICKS timer ticks.  Interrupts must
    be turned on. */
 void
-timer_sleep (int64_t ticks) 
+timer_sleep (int64_t ticks)
 {
-  int64_t start = timer_ticks ();
+  // The tick to wake up on is the current tick plus the amount of ticks to sleep for
+  int64_t sleeping_time  = timer_ticks () + ticks;
+  enum intr_level old_level;
 
+  // Make sure that the interrupt is ON
   ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
-    thread_yield ();
+  struct thread* cur = current_thread();
+  old_level = intr_disable ();
+  cur->endtick = sleeping_time;
+
+  /* Insert the current thread into the list of sleeping threads in order
+     of time to sleep */
+  list_insert_ordered (&sleeping_list, &cur->elem, cmpr_endtick, NULL);
+
+  // Block the current thread AKA let it "sleep"
+  thread_block();
+
+  // Enable interrupts
+  intr_set_level (old_level);
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -172,6 +192,24 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   thread_tick ();
+
+  ASSERT(!list_empty(&sleeping_list));
+  while(!list_empty(&sleeping_list))
+  {
+     // The thread at the front of the list is the thread closest to waking up
+     struct list_elem front = list_front(&sleeping_list);
+     struct thread *fthread = list_entry (front, struct thread, elem);
+
+     // If ticks is greater the end tick for fthread, then it is time to wake up 
+     if(ticks >= fthread->endtick)
+     {
+        // Remove the thread at the front of the list AKA fthread
+        list_pop_front(&sleeping_list);
+        thread_unblock(fthread);  // wake up/unblock fthread
+     }
+     // If the thread closest to waking up hasn't woken up yet, then there is no other thread that needs waking
+     else break;
+  }
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
