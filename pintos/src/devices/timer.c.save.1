@@ -106,7 +106,6 @@ timer_sleep (int64_t ticks)
 	{
 		sema_up(&sem);
 		thread_yield();
-		continue;
 	}
 	else
 	{
