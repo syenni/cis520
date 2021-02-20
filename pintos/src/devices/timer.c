@@ -101,12 +101,13 @@ timer_sleep (int64_t ticks)
 
   // Make sure that the interrupt is ON
   ASSERT (intr_get_level () == INTR_ON);
-  struct thread* cur = current_thread();
+  struct thread* cur = thread_current();
   old_level = intr_disable ();
   cur->endtick = sleeping_time;
 
   /* Insert the current thread into the list of sleeping threads in order
      of time to sleep */
+
   list_insert_ordered (&sleeping_list, &cur->elem, cmpr_endtick, NULL);
 
   // Block the current thread AKA let it "sleep"
@@ -185,7 +186,7 @@ timer_print_stats (void)
 {
   printf ("Timer: %"PRId64" ticks\n", timer_ticks ());
 }
-
+
 /* Timer interrupt handler. */
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
@@ -193,11 +194,10 @@ timer_interrupt (struct intr_frame *args UNUSED)
   ticks++;
   thread_tick ();
 
-  ASSERT(!list_empty(&sleeping_list));
   while(!list_empty(&sleeping_list))
   {
      // The thread at the front of the list is the thread closest to waking up
-     struct list_elem front = list_front(&sleeping_list);
+     struct list elem *front = list_front(&sleeping_list);
      struct thread *fthread = list_entry (front, struct thread, elem);
 
      // If ticks is greater the end tick for fthread, then it is time to wake up 
