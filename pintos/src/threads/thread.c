@@ -501,15 +501,15 @@ alloc_frame (struct thread *t, size_t size)
 static struct thread *
 next_thread_to_run (void) 
 {
-  list_sort(&ready_list, &get_highest_priority, NULL);
   if (list_empty (&ready_list))
     return idle_thread;
   else
   {
-     return list_entry (list_pop_back (&ready_list), struct thread, elem);
-    /*struct list_elem * e = list_begin(&ready_list);
+    /* return list_entry (list_pop_back (&ready_list), struct thread, elem);*/
+    struct list_elem * e = list_back(&ready_list);
     struct thread * next_thread = list_entry(e, struct thread, elem);
-    return next_thread;*/
+    list_remove(e);
+    return next_thread;
   }
 }
 
@@ -596,16 +596,19 @@ allocate_tid (void)
   return tid;
 }
 
+/* Function in the form of list_less_func in lib/kernel/list.h that compares the
+   endtick of two threads and returns true if a is less than b or false otherwise */
+bool cmpr_endtick (const struct list_elem *a, const struct list_elem *b, void *aux)
+{
+  struct thread *first = list_entry(a, struct thread, elem);
+  struct thread *second = list_entry(b, struct thread, elem);
+  bool alessthanb = (first->endtick) < (second->endtick); 
+  return (alessthanb);
+}
+
 /* Gets the highest priority between the current thread 
    and a parameter, h, where the current thread must also
-   be in the ready queue.
-
-void
-get_highest_priority(int * h)
-{
-  if (thread_current() -> status == THREAD_READY && *h < thread_current()->priority)
-	*h = thread_current() -> priority;
-}*/
+   be in the ready queue. */
 
 bool get_highest_priority(struct list_elem * a, struct list_elem * b, void * aux)
 {
