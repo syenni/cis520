@@ -483,7 +483,7 @@ init_thread (struct thread *t, const char *name, int priority)
 /* Allocates a SIZE-byte frame at the top of thread T's stack and
    returns a pointer to the frame's base. */
 static void *
-alloc_frame (struct thread *t, size_t size) 
+alloc_frame (struct thread *t, size_t size)
 {
   /* Stack data is always allocated in word-size units. */
   ASSERT (is_thread (t));
@@ -501,14 +501,15 @@ alloc_frame (struct thread *t, size_t size)
 static struct thread *
 next_thread_to_run (void) 
 {
+  list_sort(&ready_list, &get_highest_priority, NULL);
   if (list_empty (&ready_list))
     return idle_thread;
   else
   {
-   /* return list_entry (list_pop_front (&ready_list), struct thread, elem);*/
-    struct list_elem * e = list_max(&ready_list, &get_highest_priority, NULL);
+     return list_entry (list_pop_back (&ready_list), struct thread, elem);
+    /*struct list_elem * e = list_begin(&ready_list);
     struct thread * next_thread = list_entry(e, struct thread, elem);
-    return next_thread;
+    return next_thread;*/
   }
 }
 
