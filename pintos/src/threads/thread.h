@@ -88,11 +88,17 @@ struct thread
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
+    int total_prio;                     /* Total priority including donations */
     struct list_elem allelem;           /* List element for all threads list. */
     int64_t endtick;                    /* Sleep until this tick */
 
+    struct list donors;                 /* Threads that are donating priority */
+
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
+
+    struct thread *lock_holder;         /* The thread that is holding the lock we want */
+    struct lock *wanted_lock;          /* The lock that we want that is blocked */
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */

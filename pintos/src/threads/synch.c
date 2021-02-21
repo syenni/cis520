@@ -214,9 +214,24 @@ lock_try_acquire (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (!lock_held_by_current_thread (lock));
 
+  struct thread *cur = thread_current();
+
   success = sema_try_down (&lock->semaphore);
   if (success)
     lock->holder = thread_current ();
+  // If wanted lock is taken, set the thread that holds that lock to the highest prio
+  else
+  {
+    cur->lock_holder = lock->holder;
+    list_push_back(&lock->holder->donors, &cur->elem);
+    cur->wanted_lock = lock;
+    // If the current thread has a higher priority than the holder of the lock
+    if(cur->total_prio > cur->lock_holder->total_prio)
+    {
+      // Donate the priority
+      cur->lock_holder->total_prio = cur->total_prio;
+    }
+  }
   return success;
 }
 
@@ -226,13 +241,22 @@ lock_try_acquire (struct lock *lock)
    make sense to try to release a lock within an interrupt
    handler. */
 void
-lock_release (struct lock *lock) 
+lock_release (struct lock *lock)
 {
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
+  enum intr_level old_level = intr_disable();
+
   lock->holder = NULL;
   sema_up (&lock->semaphore);
+
+  if(!list_empty(&thread_current()->donors))
+  {
+    thread_set_priority(thread_current()->priority);
+    thread_yield();
+  }
+  intr_set_level (old_level);
 }
 
 /* Returns true if the current thread holds LOCK, false
