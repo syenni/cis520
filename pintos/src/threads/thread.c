@@ -582,3 +582,13 @@ allocate_tid (void)
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
+
+/* Function in the form of list_less_func in lib/kernel/list.h that compares the
+   endtick of two threads and returns true if a is less than b or false otherwise */
+bool cmpr_endtick (const struct list_elem *a, const struct list_elem *b, void *aux)
+{
+  struct thread *first = list_entry(a, struct thread, elem);
+  struct thread *second = list_entry(b, struct thread, elem);
+  bool alessthanb = (first->endtick) < (second->endtick); 
+  return (alessthanb);
+}
