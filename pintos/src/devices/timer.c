@@ -197,7 +197,7 @@ timer_interrupt (struct intr_frame *args UNUSED)
   while(!list_empty(&sleeping_list))
   {
      // The thread at the front of the list is the thread closest to waking up
-     struct list elem *front = list_front(&sleeping_list);
+     struct list_elem *front = list_front(&sleeping_list);
      struct thread *fthread = list_entry (front, struct thread, elem);
 
      // If ticks is greater the end tick for fthread, then it is time to wake up 
