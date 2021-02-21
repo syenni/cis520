@@ -70,6 +70,7 @@ static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
+void get_highest_priority (int * h);
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -182,6 +183,7 @@ thread_create (const char *name, int priority,
   /* Initialize thread. */
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
+  thread_set_priority(priority);
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
@@ -336,6 +338,17 @@ void
 thread_set_priority (int new_priority) 
 {
   thread_current ()->priority = new_priority;
+
+  int highest_priority = new_priority;
+
+  intr_set_level(INTR_OFF);
+
+  thread_foreach ((void *)get_highest_priority, (void *)highest_priority);
+
+  intr_set_level(INTR_ON);
+
+  if (new_priority < highest_priority)
+	thread_yield();
 }
 
 /* Returns the current thread's priority. */
@@ -578,6 +591,18 @@ allocate_tid (void)
 
   return tid;
 }
+
+/* Gets the highest priority between the current thread 
+   and a parameter, h, where the current thread must also
+   be in the ready queue.*/
+
+void
+get_highest_priority(int * h)
+{
+  if (thread_current() -> status == THREAD_READY && *h < thread_current()->priority)
+	*h = thread_current() -> priority;
+}
+
 
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */

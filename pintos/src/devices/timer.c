@@ -17,8 +17,15 @@
 #error TIMER_FREQ <= 1000 recommended
 #endif
 
-/* A semaphore to manage the sleep time of multiple threads */
+/* A semaphore used to handle the timing of each thread so that
+   it avoids busy-waiting*/
 static struct semaphore sem;
+
+/* A specialized semaphore to manage multiple sleeping and ready threads 
+static struct lock l; */
+
+/* Condition variable to manage the sleeping time of threads 
+static struct condition cond; */
 
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
@@ -97,6 +104,17 @@ timer_sleep (int64_t ticks)
   sema_init(&sem, 1);
 
   ASSERT (intr_get_level () == INTR_ON);
+
+  /*
+  lock_acquire(&l);
+  while (timer_elapsed(start) < ticks)
+  {
+	cond_wait(&cond, &l);
+	printf("In thread\n");
+  }
+  printf("Out of thread\n");
+  lock_release(&l);
+  */
 
   while (isDone == 0)
   {
