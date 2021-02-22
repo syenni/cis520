@@ -1,0 +1,208 @@
+
+CIS 520 - Programming Project #1
+
+                   
+---- GROUP ----
+
+>> Fill in the names and email addresses of your group members.
+
+Samuel McGowan <mcgowans06@ksu.edu>
+Seth Yenni <sethyenni@ksu.edu>
+Timothy Tucker <timoth54@ksu.edu>
+
+---- PRELIMINARIES ----
+
+>> If you have any preliminary comments on your submission, notes for
+>> the TA, or extra credit, please give them here.
+
+>> Please cite any offline or online sources you consulted while
+>> preparing your submission, other than the Pintos documentation,
+>> course text, lecture notes, and course staff.
+
+[1] M. G., "CS450: Priority Donation 1 (Pintos Project),." YouTube. [online video], 2019. Available: YouTube, 		https://www.youtube.com/watch?v=nVUQ4f1-roMhttps://www.youtube.com/watch?v=nVUQ4f1-roM [Accessed: February 21, 2021].
+
+[2] L. Prough, "pintos520,." GitHub. [online sourcing tool], 2018. Available: 		https://github.com/loganprough/pintos520/tree/9938c52255bfca24ec6f9490dff745a1e02409e0 [Accessed: February 21, 2021]
+
+[3] Waqee, "Pintos-Project-1,." GitHub. [online sourcing tool], 2014. Available: https://github.com/Waqee/Pintos-Project-1
+
+https://www.ccs.neu.edu/home/skotthe/classes/cs5600/fall/2016/labs/pintos-setup.html
+
+                 ALARM CLOCK
+                 ===========
+
+---- DATA STRUCTURES ----
+
+>> A1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+struct thread
+  {
+    /* Owned by thread.c. */
+    tid_t tid;                          /* Thread identifier. */
+    enum thread_status status;          /* Thread state. */
+    char name[16];                      /* Name (for debugging purposes). */
+    uint8_t *stack;                     /* Saved stack pointer. */
+    int priority;                       /* Priority. */
+    int total_prio;                     /* Total priority including donations */
+    struct list_elem allelem;           /* List element for all threads list. */
+    int64_t endtick;                    /* Sleep until this tick */
+
+    /* Shared between thread.c and synch.c. */
+    struct list_elem elem;              /* List element. */
+
+#ifdef USERPROG
+    /* Owned by userprog/process.c. */
+    uint32_t *pagedir;                  /* Page directory. */
+#endif
+
+    /* Owned by thread.c. */
+    unsigned magic;                     /* Detects stack overflow. */
+  };
+
+Added int64_t endtick so that we can check in timer_interrupt whether or not a thread should be woken up.
+
+
+/* List of sleeping threads. Threads are added to this list when they are 
+    sleeping and removed when they wake up. */
+static struct list sleeping_list;
+
+Added sleeping_list so that we have a list of all the sleeping threads. We then iterate through this list in timer_interrupt
+
+Added int64_t endtick to the thread struct in thread.h so that the thread will know when it needs to wake up
+
+---- ALGORITHMS ----
+
+>> A2: Briefly describe what happens in a call to your timer_sleep(),
+>> including the effects of the timer interrupt handler.
+When timer_sleep() is called, the interrupt is disabled. The current running thread has its end
+tick variable set to the tick that we want the thread to wake up on (timer_ticks()+ticks). It is
+then added to the list of sleeping threads in ascending order of end tick values. The thread
+is then blocked and then the interrupt is set back to its old value before disabling. The timer
+interrupt handler then checks the front of the sleeping list, that is, the thread closest
+to waking up. If it is time for it to wake, then it gets removed from the sleeping list and unblocked.
+We then iterate through the sleeping list until we get to a thread that is not supposed to wake up yet.
+
+>> A3: What steps are taken to minimize the amount of time spent in
+>> the timer interrupt handler?
+We don't iterate through the entire sleeping list. We go until we reach the first thread that isn't
+supposed to wake yet then break. This works because the sleeping list is ordered. If the closest to 
+waking thread isn't supposed to wake up yet, then the rest of the threads also are not going to wake.
+
+---- SYNCHRONIZATION ----
+
+>> A4: How are race conditions avoided when multiple threads call
+>> timer_sleep() simultaneously?
+Rather than updating a shared variable, timer_sleep() sets each thread's own endtick variable.
+Since the variables aren't shared, there is no reason to worry about race variables when
+multiple threads call timer sleep.
+
+>> A5: How are race conditions avoided when a timer interrupt occurs
+>> during a call to timer_sleep()?
+Interrupts are disabled during a call to timer_sleep to avoid this issue.
+
+---- RATIONALE ----
+
+>> A6: Why did you choose this design?  In what ways is it superior to
+>> other designs that you considered?
+We ended up choosing this design because it made the most sense to us.We had another design where
+we tried to use and implement semaphores into timer sleep but it ended up looking too much like
+the original code with a while loop and a thread_yield call.
+
+
+             PRIORITY SCHEDULING
+             ===================
+
+---- DATA STRUCTURES ----
+
+>> B1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+struct thread
+  {
+    /* Owned by thread.c. */
+    tid_t tid;                          /* Thread identifier. */
+    enum thread_status status;          /* Thread state. */
+    char name[16];                      /* Name (for debugging purposes). */
+    uint8_t *stack;                     /* Saved stack pointer. */
+    int priority;                       /* Priority. */
+    int total_prio;                     /* Total priority including donations */
+    struct list_elem allelem;           /* List element for all threads list. */
+    int64_t endtick;                    /* Sleep until this tick */
+
+    struct list donors;                 /* Threads that are donating priority */
+
+    /* Shared between thread.c and synch.c. */
+    struct list_elem elem;              /* List element. */
+    struct list_elem delem;             /* Donor element. */
+
+    struct thread *lock_holder;         /* The thread that is holding the lock we want */
+    struct lock *wanted_lock;          /* The lock that we want that is blocked */
+
+#ifdef USERPROG
+    /* Owned by userprog/process.c. */
+    uint32_t *pagedir;                  /* Page directory. */
+#endif
+
+    /* Owned by thread.c. */
+    unsigned magic;                     /* Detects stack overflow. */
+  };
+
+total_prio represents the total priority of this thread after receiving donations from other threads
+donors represents the list of all the threads that are donating priority to this thread
+delem represents the donor list element.
+lock_holder represents the thread that is holding the lock that this thread wants to acquire.
+wanted_lock is the lock that we want to acquire that is currently acquired by another thread.
+
+>> B2: Explain the data structure used to track priority donation.
+struct list donors is used to keep track of every thread that is donating their priority to this
+thread. Each thread has a base priority (priority) and a total donated priority (total_prio).
+
+---- ALGORITHMS ----
+
+>> B3: How do you ensure that the highest priority thread waiting for
+>> a lock, semaphore, or condition variable wakes up first?
+We call list_sort and sort the list in descending order everytime sema_down() is called. This ensures
+that when we pop the front of the waiting list and unblock that thread, that thread that is
+unblocked has the highest priority.
+
+>> B4: Describe the sequence of events when a call to lock_acquire()
+>> causes a priority donation.  How is nested donation handled?
+First, interrupts are disabled. Then, we check to see if the lock we want to acquire already has a
+holder. If it does, we push this current thread onto the front of the list of donors and donate our
+priority if it is higher than the holder of the lock's priority. If this lock does not yet have a
+holder, we acquire the lock. Nested donation is handled with the lock_holder variable that
+every struct has. The lock_holder variable holds a reference to the thread that is holding the lock
+that we want. If the thread is holding a lock, then lock_holder is NULL. Nested donation is handled
+donation is handled sequentially by donating to the next thread that has the lock that we want.
+
+>> B5: Describe the sequence of events when lock_release() is called
+>> on a lock that a higher-priority thread is waiting for.
+First, interrupts are disabled. Then immediately after, lock->holder is set to NULL. This means the lock
+is released. Then sema_up is called on the lock's semaphore. After that, every donor that 
+wants the lock that was just removed is removed from the donor list and their wanted_lock
+variable is set to NULL because the lock that they want is now availabe. If there are still 
+donors left, then the total priority of the current thread is set to the highest remaining priority.
+Then finally, interrupts are set back to the previous interrupt level.
+
+---- SYNCHRONIZATION ----
+
+>> B6: Describe a potential race in thread_set_priority() and explain
+>> how your implementation avoids it.  Can you use a lock to avoid
+>> this race?
+If thread_set_priority() is called in a function and then in a separate interrupt handler
+thread_set_priority() is called at the same time, there could be a potential race. Our
+implementation avoids it by disabling interrupts. Yes, you can put a lock around 
+where you set the priority so that one of the calls would have to wait for the first call
+to finish before setting the priority.
+
+---- RATIONALE ----
+
+>> B7: Why did you choose this design?  In what ways is it superior to
+>> another design you considered?
+We chose this design over our other design because our other design used recursion to 
+figure out priority donation but we ended up with stack overflow errors. We could have created
+an extra variable to help prevent the stack overflow errors but we felt like using our design
+with a simple while loop would be better. We chose this design because it worked and it made
+sense to us. 

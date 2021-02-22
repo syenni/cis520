@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <random.h>
 #include <stdio.h>
+#include <stdbool.h>
 #include <string.h>
 #include "threads/flags.h"
 #include "threads/interrupt.h"
@@ -24,7 +25,7 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 
-/* List of all processes.  Processes are added to this list
+/* List of all processes. Processes are added to this list
    when they are first scheduled and removed when they exit. */
 static struct list all_list;
 
@@ -75,13 +76,10 @@ static tid_t allocate_tid (void);
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
    was careful to put the bottom of the stack at a page boundary.
-
    Also initializes the run queue and the tid lock.
-
    After calling this function, be sure to initialize the page
    allocator before trying to create any threads with
    thread_create().
-
    It is not safe to call thread_current() until this function
    finishes. */
 void
@@ -151,14 +149,12 @@ thread_print_stats (void)
    PRIORITY, which executes FUNCTION passing AUX as the argument,
    and adds it to the ready queue.  Returns the thread identifier
    for the new thread, or TID_ERROR if creation fails.
-
    If thread_start() has been called, then the new thread may be
    scheduled before thread_create() returns.  It could even exit
    before thread_create() returns.  Contrariwise, the original
    thread may run for any amount of time before the new thread is
    scheduled.  Use a semaphore or some other form of
    synchronization if you need to ensure ordering.
-
    The code provided sets the new thread's `priority' member to
    PRIORITY, but no actual priority scheduling is implemented.
    Priority scheduling is the goal of Problem 1-3. */
@@ -171,6 +167,7 @@ thread_create (const char *name, int priority,
   struct switch_entry_frame *ef;
   struct switch_threads_frame *sf;
   tid_t tid;
+  enum intr_level old_level;
 
   ASSERT (function != NULL);
 
@@ -182,6 +179,8 @@ thread_create (const char *name, int priority,
   /* Initialize thread. */
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
+
+  old_level = intr_disable ();
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
@@ -198,15 +197,21 @@ thread_create (const char *name, int priority,
   sf->eip = switch_entry;
   sf->ebp = 0;
 
+  intr_set_level (old_level);
+
   /* Add to run queue. */
   thread_unblock (t);
+
+  old_level = intr_disable();
+  if(t->priority > thread_current()->total_prio)
+    thread_yield();
+  intr_set_level (old_level);
 
   return tid;
 }
 
 /* Puts the current thread to sleep.  It will not be scheduled
    again until awoken by thread_unblock().
-
    This function must be called with interrupts turned off.  It
    is usually a better idea to use one of the synchronization
    primitives in synch.h. */
@@ -223,7 +228,6 @@ thread_block (void)
 /* Transitions a blocked thread T to the ready-to-run state.
    This is an error if T is not blocked.  (Use thread_yield() to
    make the running thread ready.)
-
    This function does not preempt the running thread.  This can
    be important: if the caller had disabled interrupts itself,
    it may expect that it can atomically unblock a thread and
@@ -237,7 +241,7 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_push_back (&ready_list, &t->elem);
+  list_insert_ordered(&ready_list, &t->elem, get_highest_priority, NULL);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -256,7 +260,7 @@ struct thread *
 thread_current (void) 
 {
   struct thread *t = running_thread ();
-  
+
   /* Make sure T is really a thread.
      If either of these assertions fire, then your thread may
      have overflowed its stack.  Each thread has less than 4 kB
@@ -299,16 +303,18 @@ thread_exit (void)
 /* Yields the CPU.  The current thread is not put to sleep and
    may be scheduled again immediately at the scheduler's whim. */
 void
-thread_yield (void) 
+thread_yield (void)
 {
   struct thread *cur = thread_current ();
   enum intr_level old_level;
-  
+
   ASSERT (!intr_context ());
 
   old_level = intr_disable ();
-  if (cur != idle_thread) 
-    list_push_back (&ready_list, &cur->elem);
+  if (cur != idle_thread)
+  {  
+    list_insert_ordered (&ready_list, &cur->elem, get_highest_priority, NULL);
+  }
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -335,45 +341,45 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  enum intr_level old = intr_disable();
-  struct thread *t = thread_current();
-  
-  // Donate if higher priority
-  if (new_priority > t->priority && t->waiting != NULL && t->waiting->holder != NULL) thread_donate_priority(t->waiting->holder, new_priority);
-  
-  // If we aren't using a donated priority, or we're changing to a priority higher than our donated priority, change our real priority and the base priority
-  if (t->bpri == t->priority || new_priority > t->priority) t->priority = new_priority;
-  t->bpri = new_priority;
+  enum intr_level old_level;
 
-  // Yield in case we changed to a lower priority
-  thread_yield();
-  intr_set_level(old);
+  old_level = intr_disable();
+
+  // If there are no donors, then set the priority and total priority to new prio
+  if(list_empty(&thread_current()->donors))
+  {
+     thread_current()->priority = new_priority;
+     thread_current()->total_prio = new_priority;
+  }
+  // Else if, there are donors and the new priority is higher than total prio, set total prio to new prio
+  else if(thread_current()->total_prio < new_priority)
+  {
+    thread_current()->total_prio = new_priority;
+//    thread_current()->priority = new_priority;
+  }
+  // Else, there are donors, but the new priority is less than total prio, set base priority
+  else
+  {
+    thread_current()->priority = new_priority;
+  }
+
+  if(!list_empty(&ready_list))
+  {
+    struct list_elem *e = list_max(&ready_list, get_highest_priority, NULL);
+    struct thread *highest_thread = list_entry(e, struct thread, elem);
+    if(thread_current()->total_prio < highest_thread->total_prio)
+    {
+      thread_yield();
+    }
+  }
+  intr_set_level (old_level);
 }
 
-void
-thread_donate_priority (struct thread *t, int new)
-{
-	enum intr_level old = intr_disable();
-	if (t -> priority < new)
-		t -> priority = new;
-	if (t -> waiting != NULL && t -> waiting -> holder != NULL)
-		thread_donate_priority (t -> waiting -> holder, thread_get_priority());
-	intr_set_level(old);
-}
-
-void
-thread_return_donation ()
-{
-	struct thread *t = thread_crrent();
-	t -> priority = t -> bpri;
-}
-
-
-/* Returns the current thread's priority. */
+/*  Returns the current thread's priority. */
 int
 thread_get_priority (void) 
 {
-  return thread_current ()->priority;
+  return thread_current ()->total_prio;
 }
 
 /* Sets the current thread's nice value to NICE. */
@@ -408,7 +414,6 @@ thread_get_recent_cpu (void)
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
-
    The idle thread is initially put on the ready list by
    thread_start().  It will be scheduled once initially, at which
    point it initializes idle_thread, "up"s the semaphore passed
@@ -430,7 +435,6 @@ idle (void *idle_started_ UNUSED)
       thread_block ();
 
       /* Re-enable interrupts and wait for the next one.
-
          The `sti' instruction disables interrupts until the
          completion of the next instruction, so these two
          instructions are executed atomically.  This atomicity is
@@ -438,7 +442,6 @@ idle (void *idle_started_ UNUSED)
          between re-enabling interrupts and waiting for the next
          one to occur, wasting as much as one clock tick worth of
          time.
-
          See [IA32-v2a] "HLT", [IA32-v2b] "STI", and [IA32-v3a]
          7.11.1 "HLT Instruction". */
       asm volatile ("sti; hlt" : : : "memory");
@@ -482,8 +485,6 @@ is_thread (struct thread *t)
 static void
 init_thread (struct thread *t, const char *name, int priority)
 {
-  enum intr_level old_level;
-
   ASSERT (t != NULL);
   ASSERT (PRI_MIN <= priority && priority <= PRI_MAX);
   ASSERT (name != NULL);
@@ -494,10 +495,11 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
-
-  old_level = intr_disable ();
+  t->total_prio = priority;
+  t->lock_holder = NULL;
+  t->wanted_lock = NULL;
+  list_init (&t->donors);
   list_push_back (&all_list, &t->allelem);
-  intr_set_level (old_level);
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and
@@ -519,28 +521,30 @@ alloc_frame (struct thread *t, size_t size)
    will be in the run queue.)  If the run queue is empty, return
    idle_thread. */
 static struct thread *
-next_thread_to_run (void) 
+next_thread_to_run (void)
 {
   if (list_empty (&ready_list))
     return idle_thread;
   else
-    return list_entry (list_pop_front (&ready_list), struct thread, elem);
+  {
+    struct list_elem *e = list_back(&ready_list);
+    struct thread *next_thread = list_entry(e, struct thread, elem);
+    list_remove(e);
+    return next_thread;
+  }
 }
 
 /* Completes a thread switch by activating the new thread's page
    tables, and, if the previous thread is dying, destroying it.
-
    At this function's invocation, we just switched from thread
    PREV, the new thread is already running, and interrupts are
    still disabled.  This function is normally invoked by
    thread_schedule() as its final action before returning, but
    the first time a thread is scheduled it is called by
    switch_entry() (see switch.S).
-
    It's not safe to call printf() until the thread switch is
    complete.  In practice that means that printf()s should be
    added at the end of the function.
-
    After this function and its caller returns, the thread switch
    is complete. */
 void
@@ -577,7 +581,6 @@ thread_schedule_tail (struct thread *prev)
    the running process's state must have been changed from
    running to some other state.  This function finds another
    thread to run and switches to it.
-
    It's not safe to call printf() until thread_schedule_tail()
    has completed. */
 static void
@@ -609,7 +612,7 @@ allocate_tid (void)
 
   return tid;
 }
-
+
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
@@ -622,4 +625,23 @@ bool cmpr_endtick (const struct list_elem *a, const struct list_elem *b, void *a
   struct thread *second = list_entry(b, struct thread, elem);
   bool alessthanb = (first->endtick) < (second->endtick); 
   return (alessthanb);
+}
+
+bool get_highest_priority (const struct list_elem *a, const struct list_elem *b, void *aux)
+{
+  struct thread *thread_a = list_entry(a, struct thread, elem);
+  struct thread *thread_b = list_entry(b, struct thread, elem);
+
+  if (thread_a[0].total_prio < thread_b[0].total_prio)
+  {
+    return (true);
+  }
+  return (false);
+}
+
+bool cmpr_priority (const struct list_elem *a, const struct list_elem *b, void *aux)
+{
+  struct thread *first = list_entry(a, struct thread, elem);
+  struct thread *second = list_entry(b, struct thread, elem);
+  return(first->total_prio > second->total_prio);
 }
