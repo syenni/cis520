@@ -29,6 +29,7 @@
 #include "threads/synch.h"
 #include <stdio.h>
 #include <string.h>
+#include <stdbool.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
@@ -196,8 +197,18 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
+  struct thread * t = thread_current();
+  enum intr_level old_level = intr_disable();
+  if (lock->holder != NULL)
+  {
+	t -> lock_waiting_on = lock;
+	thread_donate_priority(&lock->holder, thread_get_priority());
+  }
+
   sema_down (&lock->semaphore);
+  t -> lock_waiting_on = NULL;
   lock->holder = thread_current ();
+  intr_set_level(old_level);
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -214,9 +225,14 @@ lock_try_acquire (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (!lock_held_by_current_thread (lock));
 
+  if (lock->holder != NULL)
+	thread_donate_priority(&lock->holder, thread_get_priority());
+
   success = sema_try_down (&lock->semaphore);
   if (success)
+  {
     lock->holder = thread_current ();
+  }
   return success;
 }
 
@@ -231,8 +247,12 @@ lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
+  enum intr_level old_level = intr_disable();
+
   lock->holder = NULL;
   sema_up (&lock->semaphore);
+  thread_return_donation();
+  intr_set_level(old_level);
 }
 
 /* Returns true if the current thread holds LOCK, false

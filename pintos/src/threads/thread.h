@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -90,7 +91,8 @@ struct thread
     int priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
     int64_t endtick;
-    int total_prio;
+    int base_prio;
+    struct lock * lock_waiting_on;
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
@@ -141,5 +143,7 @@ int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
 bool cmpr_endtick (const struct list_elem *a, const struct list_elem *b, void *aux);
+void thread_donate_priority(struct thread ** thread, int donated_priority);
+void thread_return_donation(void);
 
 #endif /* threads/thread.h */
