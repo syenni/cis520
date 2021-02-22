@@ -347,8 +347,8 @@ thread_set_priority (int new_priority)
   struct list_elem * e = list_max(&ready_list, &get_highest_priority, NULL);
   struct thread * highest_thread = list_entry(e, struct thread, elem);
 
-  if ( t -> lock_waiting_on != NULL && t -> lock_waiting_on -> holder != NULL && t -> lock_waiting_on -> holder -> priority < t->priority)
-	thread_donate_priority(&t -> lock_waiting_on -> holder, new_priority);
+  if ( t -> lock_waiting_on != NULL && t -> lock_waiting_on -> holder != NULL && new_priority > t->priority)
+	thread_donate_priority(&t -> lock_waiting_on -> holder, t->priority);
 
   t->priority = new_priority;
 
@@ -371,12 +371,11 @@ void thread_donate_priority (struct thread ** thread, int donated_priority)
   //This thread could be waiting for another lock
 	// so check if it needs to donate some priority
 
-  if (t -> lock_waiting_on != NULL && thread[0] -> lock_waiting_on -> holder != NULL &&
-	t -> lock_waiting_on -> holder -> priority < t->priority)
-	thread_donate_priority(&t -> lock_waiting_on -> holder, t -> priority);
+  if (t -> lock_waiting_on != NULL && t -> lock_waiting_on -> holder != NULL)
+	thread_donate_priority(&t -> lock_waiting_on -> holder, t->priority);
 
-  thread_yield();
   intr_set_level(old_level);
+  thread_yield();
 }
 
 /* A function to return the donation given by a

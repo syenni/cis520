@@ -18,14 +18,18 @@
 #endif
 
 /* A semaphore used to handle the timing of each thread so that
-   it avoids busy-waiting*/
-static struct semaphore sem;
+   it avoids busy-waiting
+static struct semaphore sem;*/
 
 /* A specialized semaphore to manage multiple sleeping and ready threads 
 static struct lock l; */
 
 /* Condition variable to manage the sleeping time of threads 
 static struct condition cond; */
+
+/* List of sleeping threads. Threads are added to this list when they are
+    sleeping and removed when they wake up. */
+static struct list sleeping_list;
 
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
@@ -47,6 +51,7 @@ timer_init (void)
 {
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+  list_init (&sleeping_list);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -99,24 +104,28 @@ timer_elapsed (int64_t then)
 void
 timer_sleep (int64_t ticks)
 {
-  int64_t start = timer_ticks ();
-  int isDone = 0;
-  sema_init(&sem, 1);
+  int64_t sleeping_time = timer_ticks () + ticks;
+  enum intr_level old_level;
+
+ /* int isDone = 0;
+  sema_init(&sem, 1);*/
 
   ASSERT (intr_get_level () == INTR_ON);
+  struct thread * cur = thread_current();
+  old_level = intr_disable();
+  cur->endtick = sleeping_time;
 
-  /*
-  lock_acquire(&l);
-  while (timer_elapsed(start) < ticks)
-  {
-	cond_wait(&cond, &l);
-	printf("In thread\n");
-  }
-  printf("Out of thread\n");
-  lock_release(&l);
-  */
+  /* Insert the current thread into the list of sleeping threads in order
+     of time to sleep */
+  list_insert_ordered (&sleeping_list, &cur->elem, cmpr_endtick, NULL);
 
-  while (isDone == 0)
+  /* Block the current thread AKA let it "sleep" */
+  thread_block();
+
+  /* Enable interrupts */
+  intr_set_level(old_level);
+
+ /* while (isDone == 0)
   {
 	sema_down(&sem);
 
@@ -132,7 +141,7 @@ timer_sleep (int64_t ticks)
 		sema_up(&sem);
 		thread_yield();
 	}
-  }
+  }*/
 
  /* ASSERT (intr_get_level () == INTR_ON);
   while (timer_elapsed (start) < ticks) 
@@ -215,6 +224,23 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   thread_tick ();
+
+  while(!list_empty(&sleeping_list))
+  {
+     // The thread at the front of the list is the thread closest to waking up
+     struct list_elem *front = list_front(&sleeping_list);
+     struct thread *fthread = list_entry (front, struct thread, elem);
+
+     // If ticks is greater the end tick for fthread, then it is time to wake up 
+     if(ticks >= fthread->endtick)
+     {
+        // Remove the thread at the front of the list AKA fthread
+        list_pop_front(&sleeping_list);
+        thread_unblock(fthread);  // wake up/unblock fthread
+     }
+     // If the thread closest to waking up hasn't woken up yet, then there is no other thread that needs waking
+     else break;
+  }
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
