@@ -362,7 +362,7 @@ thread_set_priority (int new_priority)
   else if(thread_current()->total_prio < new_priority)
   {
     thread_current()->total_prio = new_priority;
-    thread_current()->priority = new_priority;
+//    thread_current()->priority = new_priority;
   }
   // Else, there are donors, but the new priority is less than total prio, set base priority
   else
