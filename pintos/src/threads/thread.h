@@ -96,6 +96,7 @@ struct thread
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
+    struct list_elem delem;             /* Donor element. */
 
     struct thread *lock_holder;         /* The thread that is holding the lock we want */
     struct lock *wanted_lock;          /* The lock that we want that is blocked */
@@ -146,5 +147,7 @@ int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
 bool cmpr_endtick (const struct list_elem *a, const struct list_elem *b, void *aux);
+bool get_highest_priority (const struct list_elem *a, const struct list_elem *b, void *aux);
+bool cmpr_priority (const struct list_elem *a, const struct list_elem *b, void *aux);
 
 #endif /* threads/thread.h */

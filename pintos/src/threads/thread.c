@@ -71,7 +71,6 @@ static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
-bool get_highest_priority (struct list_elem *, struct list_elem *, void * aux);
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -249,7 +248,6 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  //list_push_back (&ready_list, &t->elem);
   list_insert_ordered(&ready_list, &t->elem, get_highest_priority, NULL);
   t->status = THREAD_READY;
   intr_set_level (old_level);
@@ -269,7 +267,7 @@ struct thread *
 thread_current (void) 
 {
   struct thread *t = running_thread ();
-  
+
   /* Make sure T is really a thread.
      If either of these assertions fire, then your thread may
      have overflowed its stack.  Each thread has less than 4 kB
@@ -321,7 +319,7 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread)
-  {  //list_push_back (&ready_list, &cur->elem);
+  {  
     list_insert_ordered (&ready_list, &cur->elem, get_highest_priority, NULL);
   }
   cur->status = THREAD_READY;
@@ -375,7 +373,6 @@ thread_set_priority (int new_priority)
   if(!list_empty(&ready_list))
   {
     struct list_elem *e = list_max(&ready_list, get_highest_priority, NULL);
-    //struct list_elem *e = list_front(&ready_list);
     struct thread *highest_thread = list_entry(e, struct thread, elem);
     if(thread_current()->total_prio < highest_thread->total_prio)
     {
@@ -385,7 +382,7 @@ thread_set_priority (int new_priority)
   intr_set_level (old_level);
 }
 
-/* Returns the current thread's priority. */
+/*  Returns the current thread's priority. */
 int
 thread_get_priority (void) 
 {
@@ -498,8 +495,6 @@ is_thread (struct thread *t)
 static void
 init_thread (struct thread *t, const char *name, int priority)
 {
-  enum intr_level old_level;
-
   ASSERT (t != NULL);
   ASSERT (PRI_MIN <= priority && priority <= PRI_MAX);
   ASSERT (name != NULL);
@@ -514,9 +509,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->lock_holder = NULL;
   t->wanted_lock = NULL;
   list_init (&t->donors);
-  old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
-  intr_set_level (old_level);
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and
@@ -648,14 +641,21 @@ bool cmpr_endtick (const struct list_elem *a, const struct list_elem *b, void *a
   return (alessthanb);
 }
 
-bool get_highest_priority (struct list_elem *a, struct list_elem *b, void *aux)
+bool get_highest_priority (const struct list_elem *a, const struct list_elem *b, void *aux)
 {
   struct thread *thread_a = list_entry(a, struct thread, elem);
   struct thread *thread_b = list_entry(b, struct thread, elem);
 
-  if (thread_a[0].priority < thread_b[0].priority)
+  if (thread_a[0].total_prio < thread_b[0].total_prio)
   {
     return (true);
   }
   return (false);
+}
+
+bool cmpr_priority (const struct list_elem *a, const struct list_elem *b, void *aux)
+{
+  struct thread *first = list_entry(a, struct thread, elem);
+  struct thread *second = list_entry(b, struct thread, elem);
+  return(first->total_prio > second->total_prio);
 }
